@@ -22,20 +22,23 @@ import (
 
 // CommentStyle defines the comment format for different programming languages.
 type CommentStyle struct {
-	Prefix string // Comment prefix (e.g., "// " for Go/C)
-	Suffix string // Comment suffix (e.g., " -->" for HTML, empty for most)
+	Prefix            string // Comment prefix (e.g., "// " for Go/C)
+	Suffix            string // Comment suffix (e.g., " -->" for HTML, empty for most)
+	PrefixContainsKey bool   // If true, Prefix already includes "FileIntegrity" (e.g., for const declarations)
 }
 
 // Predefined comment styles for common languages.
 var (
-	GoStyle     = CommentStyle{Prefix: "// ", Suffix: ""}
-	CStyle      = CommentStyle{Prefix: "// ", Suffix: ""}
-	PythonStyle = CommentStyle{Prefix: "# ", Suffix: ""}
-	SQLStyle    = CommentStyle{Prefix: "-- ", Suffix: ""}
-	HTMLStyle   = CommentStyle{Prefix: "<!-- ", Suffix: " -->"}
-	ShellStyle  = CommentStyle{Prefix: "# ", Suffix: ""}
-	RubyStyle   = CommentStyle{Prefix: "# ", Suffix: ""}
-	JSStyle     = CommentStyle{Prefix: "// ", Suffix: ""}
+	GoStyle     = CommentStyle{Prefix: "// ", Suffix: "", PrefixContainsKey: false}
+	CStyle      = CommentStyle{Prefix: "// ", Suffix: "", PrefixContainsKey: false}
+	PythonStyle = CommentStyle{Prefix: "# ", Suffix: "", PrefixContainsKey: false}
+	SQLStyle    = CommentStyle{Prefix: "-- ", Suffix: "", PrefixContainsKey: false}
+	HTMLStyle   = CommentStyle{Prefix: "<!-- ", Suffix: " -->", PrefixContainsKey: false}
+	ShellStyle  = CommentStyle{Prefix: "# ", Suffix: "", PrefixContainsKey: false}
+	RubyStyle   = CommentStyle{Prefix: "# ", Suffix: "", PrefixContainsKey: false}
+	JSStyle     = CommentStyle{Prefix: "// ", Suffix: "", PrefixContainsKey: false}
+	CSSStyle    = CommentStyle{Prefix: "/* ", Suffix: " */", PrefixContainsKey: false}
+	TemplStyle  = CommentStyle{Prefix: "const FileIntegrity = \"", Suffix: "\"", PrefixContainsKey: true}
 )
 
 // Config holds processing configuration.
@@ -72,6 +75,10 @@ func ConfigForExtension(ext string) Config {
 		config.CommentStyle = ShellStyle
 	case ".rb":
 		config.CommentStyle = RubyStyle
+	case ".css", ".scss", ".sass":
+		config.CommentStyle = CSSStyle
+	case ".templ":
+		config.CommentStyle = TemplStyle
 	}
 
 	return config
@@ -331,11 +338,22 @@ func (w *Writer) finalizeWindow(writer *bufio.Writer, hasher hash.Hash32, window
 
 // createComment generates the integrity comment with proper line ending.
 func (w *Writer) createComment(crc uint32, lineEnding string) []byte {
-	comment := fmt.Sprintf("%sFileIntegrity: %08X%s%s",
-		w.config.CommentStyle.Prefix,
-		crc,
-		w.config.CommentStyle.Suffix,
-		lineEnding)
+	var comment string
+	if w.config.CommentStyle.PrefixContainsKey {
+		// Prefix already contains "FileIntegrity" part (e.g., "const FileIntegrity = \"")
+		comment = fmt.Sprintf("%s%08X%s%s",
+			w.config.CommentStyle.Prefix,
+			crc,
+			w.config.CommentStyle.Suffix,
+			lineEnding)
+	} else {
+		// Traditional comment format with "FileIntegrity: " in the middle
+		comment = fmt.Sprintf("%sFileIntegrity: %08X%s%s",
+			w.config.CommentStyle.Prefix,
+			crc,
+			w.config.CommentStyle.Suffix,
+			lineEnding)
+	}
 	return []byte(comment)
 }
 
@@ -461,7 +479,15 @@ func (r *Reader) verifyWindow(hasher hash.Hash32, window []byte) (bool, error) {
 func createCommentPattern(style CommentStyle) *regexp.Regexp {
 	prefix := regexp.QuoteMeta(style.Prefix)
 	suffix := regexp.QuoteMeta(style.Suffix)
-	pattern := fmt.Sprintf(`(?m)^%sFileIntegrity: ([0-9A-F]{8})%s\r?\n?$`, prefix, suffix)
+
+	var pattern string
+	if style.PrefixContainsKey {
+		// Prefix already contains "FileIntegrity" part, so just match hash
+		pattern = fmt.Sprintf(`(?m)^%s([0-9A-F]{8})%s\r?\n?$`, prefix, suffix)
+	} else {
+		// Traditional format with "FileIntegrity: " in the middle
+		pattern = fmt.Sprintf(`(?m)^%sFileIntegrity: ([0-9A-F]{8})%s\r?\n?$`, prefix, suffix)
+	}
 	return regexp.MustCompile(pattern)
 }
 
@@ -526,4 +552,4 @@ func VerifyFile(filename string) (bool, error) {
 	return reader.VerifyFile(filename)
 }
 
-// FileIntegrity: C11ECDCD
+// FileIntegrity: 353BE8BC

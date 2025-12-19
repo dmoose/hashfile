@@ -717,3 +717,483 @@ func BenchmarkVerifyFile(b *testing.B) {
 		}
 	}
 }
+
+// TestCSSStyle tests CSS comment format
+func TestCSSStyle(t *testing.T) {
+	content := "body {\n    color: red;\n}\n"
+
+	tmpfile, err := os.CreateTemp("", "test_*.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	tmpfile.Close()
+
+	// Process with CSS style
+	config := Config{CommentStyle: CSSStyle, BufferSize: 64 * 1024}
+	writer := NewWriter(config)
+	if err := writer.ProcessFile(tmpfile.Name()); err != nil {
+		t.Fatalf("ProcessFile() failed: %v", err)
+	}
+
+	// Read result
+	result, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check that CSS comment format is used
+	if !bytes.Contains(result, []byte("/* FileIntegrity:")) {
+		t.Error("CSS comment format not found")
+	}
+	if !bytes.Contains(result, []byte("*/")) {
+		t.Error("CSS comment closing not found")
+	}
+
+	// Verify file
+	reader := NewReader(config)
+	valid, err := reader.VerifyFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("VerifyFile() failed: %v", err)
+	}
+	if !valid {
+		t.Error("Verification failed for CSS file")
+	}
+}
+
+// TestTemplStyle tests templ const declaration format
+func TestTemplStyle(t *testing.T) {
+	content := "package components\n\ntempl Hello() {\n    <div>Hello</div>\n}\n"
+
+	tmpfile, err := os.CreateTemp("", "test_*.templ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	tmpfile.Close()
+
+	// Process with Templ style
+	config := Config{CommentStyle: TemplStyle, BufferSize: 64 * 1024}
+	writer := NewWriter(config)
+	if err := writer.ProcessFile(tmpfile.Name()); err != nil {
+		t.Fatalf("ProcessFile() failed: %v", err)
+	}
+
+	// Read result
+	result, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check that const declaration format is used
+	if !bytes.Contains(result, []byte("const FileIntegrity = \"")) {
+		t.Error("Templ const declaration not found")
+	}
+	if bytes.Contains(result, []byte("FileIntegrity:")) {
+		t.Error("Should not contain colon format in templ style")
+	}
+
+	// Extract the hash value to verify format
+	lines := bytes.Split(result, []byte("\n"))
+	var foundConst bool
+	for _, line := range lines {
+		if bytes.HasPrefix(line, []byte("const FileIntegrity = ")) {
+			foundConst = true
+			// Should be: const FileIntegrity = "ABCD1234"
+			if !bytes.HasSuffix(bytes.TrimSpace(line), []byte("\"")) {
+				t.Error("Const declaration doesn't end with quote")
+			}
+		}
+	}
+	if !foundConst {
+		t.Error("const FileIntegrity declaration not found")
+	}
+
+	// Verify file
+	reader := NewReader(config)
+	valid, err := reader.VerifyFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("VerifyFile() failed: %v", err)
+	}
+	if !valid {
+		t.Error("Verification failed for templ file")
+	}
+}
+
+// TestCSSStyleIdempotency ensures CSS files don't get modified on second process
+func TestCSSStyleIdempotency(t *testing.T) {
+	content := ".button {\n    padding: 10px;\n}\n"
+
+	tmpfile, err := os.CreateTemp("", "test_*.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	tmpfile.Close()
+
+	config := Config{CommentStyle: CSSStyle, BufferSize: 64 * 1024}
+	writer := NewWriter(config)
+
+	// Process first time
+	if err := writer.ProcessFile(tmpfile.Name()); err != nil {
+		t.Fatalf("First ProcessFile() failed: %v", err)
+	}
+
+	info1, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content1, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Process second time
+	if err := writer.ProcessFile(tmpfile.Name()); err != nil {
+		t.Fatalf("Second ProcessFile() failed: %v", err)
+	}
+
+	info2, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content2, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Content should be identical
+	if !bytes.Equal(content1, content2) {
+		t.Error("CSS file content changed on second process")
+	}
+
+	// Modification time should be identical (no-op)
+	if !info1.ModTime().Equal(info2.ModTime()) {
+		t.Error("CSS file modification time changed on second process")
+	}
+}
+
+// TestTemplStyleIdempotency ensures templ files don't get modified on second process
+func TestTemplStyleIdempotency(t *testing.T) {
+	content := "package components\n\ntempl Button() {\n    <button>Click</button>\n}\n"
+
+	tmpfile, err := os.CreateTemp("", "test_*.templ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	tmpfile.Close()
+
+	config := Config{CommentStyle: TemplStyle, BufferSize: 64 * 1024}
+	writer := NewWriter(config)
+
+	// Process first time
+	if err := writer.ProcessFile(tmpfile.Name()); err != nil {
+		t.Fatalf("First ProcessFile() failed: %v", err)
+	}
+
+	info1, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content1, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Process second time
+	if err := writer.ProcessFile(tmpfile.Name()); err != nil {
+		t.Fatalf("Second ProcessFile() failed: %v", err)
+	}
+
+	info2, err := os.Stat(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content2, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Content should be identical
+	if !bytes.Equal(content1, content2) {
+		t.Error("Templ file content changed on second process")
+	}
+
+	// Modification time should be identical (no-op)
+	if !info1.ModTime().Equal(info2.ModTime()) {
+		t.Error("Templ file modification time changed on second process")
+	}
+}
+
+// TestBackwardCompatibility ensures existing comment styles still work unchanged
+func TestBackwardCompatibility(t *testing.T) {
+	tests := []struct {
+		name    string
+		style   CommentStyle
+		content string
+		want    string // Expected pattern in output
+	}{
+		{
+			name:    "Go style unchanged",
+			style:   GoStyle,
+			content: "package main\n",
+			want:    "// FileIntegrity:",
+		},
+		{
+			name:    "Python style unchanged",
+			style:   PythonStyle,
+			content: "def hello():\n    pass\n",
+			want:    "# FileIntegrity:",
+		},
+		{
+			name:    "C style unchanged",
+			style:   CStyle,
+			content: "int main() { return 0; }\n",
+			want:    "// FileIntegrity:",
+		},
+		{
+			name:    "SQL style unchanged",
+			style:   SQLStyle,
+			content: "SELECT * FROM users;\n",
+			want:    "-- FileIntegrity:",
+		},
+		{
+			name:    "HTML style unchanged",
+			style:   HTMLStyle,
+			content: "<html><body>Test</body></html>\n",
+			want:    "<!-- FileIntegrity:",
+		},
+		{
+			name:    "Shell style unchanged",
+			style:   ShellStyle,
+			content: "#!/bin/bash\necho hello\n",
+			want:    "# FileIntegrity:",
+		},
+		{
+			name:    "Ruby style unchanged",
+			style:   RubyStyle,
+			content: "puts 'hello'\n",
+			want:    "# FileIntegrity:",
+		},
+		{
+			name:    "JS style unchanged",
+			style:   JSStyle,
+			content: "console.log('hello');\n",
+			want:    "// FileIntegrity:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpfile, err := os.CreateTemp("", "test_*")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(tmpfile.Name())
+
+			if _, err := tmpfile.Write([]byte(tt.content)); err != nil {
+				t.Fatal(err)
+			}
+			tmpfile.Close()
+
+			config := Config{CommentStyle: tt.style, BufferSize: 64 * 1024}
+			writer := NewWriter(config)
+			if err := writer.ProcessFile(tmpfile.Name()); err != nil {
+				t.Fatalf("ProcessFile() failed: %v", err)
+			}
+
+			result, err := os.ReadFile(tmpfile.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Check that expected pattern is present
+			if !bytes.Contains(result, []byte(tt.want)) {
+				t.Errorf("Expected pattern %q not found in output", tt.want)
+			}
+
+			// Verify file works
+			reader := NewReader(config)
+			valid, err := reader.VerifyFile(tmpfile.Name())
+			if err != nil {
+				t.Fatalf("VerifyFile() failed: %v", err)
+			}
+			if !valid {
+				t.Error("Verification failed")
+			}
+		})
+	}
+}
+
+// TestExtensionMapping ensures new extensions are properly mapped
+func TestExtensionMappingNewStyles(t *testing.T) {
+	tests := []struct {
+		ext       string
+		wantStyle CommentStyle
+	}{
+		{".css", CSSStyle},
+		{".scss", CSSStyle},
+		{".sass", CSSStyle},
+		{".templ", TemplStyle},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ext, func(t *testing.T) {
+			config := ConfigForExtension(tt.ext)
+			if config.CommentStyle != tt.wantStyle {
+				t.Errorf("ConfigForExtension(%q) = %+v, want %+v", tt.ext, config.CommentStyle, tt.wantStyle)
+			}
+		})
+	}
+}
+
+// TestCSSModificationDetection ensures CSS files detect modifications
+func TestCSSModificationDetection(t *testing.T) {
+	content := ".header { color: blue; }\n"
+
+	tmpfile, err := os.CreateTemp("", "test_*.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	tmpfile.Close()
+
+	config := Config{CommentStyle: CSSStyle, BufferSize: 64 * 1024}
+	writer := NewWriter(config)
+	reader := NewReader(config)
+
+	// Process file
+	if err := writer.ProcessFile(tmpfile.Name()); err != nil {
+		t.Fatalf("ProcessFile() failed: %v", err)
+	}
+
+	// Modify content
+	fileContent, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	modified := bytes.Replace(fileContent, []byte("blue"), []byte("red"), 1)
+	if err := os.WriteFile(tmpfile.Name(), modified, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify should fail
+	valid, err := reader.VerifyFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("VerifyFile() returned error: %v", err)
+	}
+	if valid {
+		t.Error("VerifyFile() returned true for modified CSS file, expected false")
+	}
+}
+
+// TestTemplModificationDetection ensures templ files detect modifications
+func TestTemplModificationDetection(t *testing.T) {
+	content := "package components\n\ntempl Page() {\n    <h1>Title</h1>\n}\n"
+
+	tmpfile, err := os.CreateTemp("", "test_*.templ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	tmpfile.Close()
+
+	config := Config{CommentStyle: TemplStyle, BufferSize: 64 * 1024}
+	writer := NewWriter(config)
+	reader := NewReader(config)
+
+	// Process file
+	if err := writer.ProcessFile(tmpfile.Name()); err != nil {
+		t.Fatalf("ProcessFile() failed: %v", err)
+	}
+
+	// Modify content
+	fileContent, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	modified := bytes.Replace(fileContent, []byte("Title"), []byte("Modified"), 1)
+	if err := os.WriteFile(tmpfile.Name(), modified, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify should fail
+	valid, err := reader.VerifyFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("VerifyFile() returned error: %v", err)
+	}
+	if valid {
+		t.Error("VerifyFile() returned true for modified templ file, expected false")
+	}
+}
+
+// TestPrefixContainsKeyFlag ensures the PrefixContainsKey flag works correctly
+func TestPrefixContainsKeyFlag(t *testing.T) {
+	// Test that CSS (PrefixContainsKey=false) includes "FileIntegrity:"
+	cssContent := "body {}\n"
+	tmpCSS, err := os.CreateTemp("", "test_*.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpCSS.Name())
+	tmpCSS.Write([]byte(cssContent))
+	tmpCSS.Close()
+
+	cssConfig := Config{CommentStyle: CSSStyle, BufferSize: 64 * 1024}
+	cssWriter := NewWriter(cssConfig)
+	cssWriter.ProcessFile(tmpCSS.Name())
+
+	cssResult, _ := os.ReadFile(tmpCSS.Name())
+	if !bytes.Contains(cssResult, []byte("FileIntegrity:")) {
+		t.Error("CSS style should contain 'FileIntegrity:' (PrefixContainsKey=false)")
+	}
+
+	// Test that Templ (PrefixContainsKey=true) does NOT have extra "FileIntegrity:"
+	templContent := "package main\n"
+	tmpTempl, err := os.CreateTemp("", "test_*.templ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpTempl.Name())
+	tmpTempl.Write([]byte(templContent))
+	tmpTempl.Close()
+
+	templConfig := Config{CommentStyle: TemplStyle, BufferSize: 64 * 1024}
+	templWriter := NewWriter(templConfig)
+	templWriter.ProcessFile(tmpTempl.Name())
+
+	templResult, _ := os.ReadFile(tmpTempl.Name())
+	// Should have "const FileIntegrity = " but not "FileIntegrity:" with colon
+	if bytes.Contains(templResult, []byte("FileIntegrity: ")) {
+		t.Error("Templ style should NOT contain 'FileIntegrity:' with colon (PrefixContainsKey=true)")
+	}
+	if !bytes.Contains(templResult, []byte("const FileIntegrity = ")) {
+		t.Error("Templ style should contain 'const FileIntegrity = '")
+	}
+}
+// FileIntegrity: 77A81829

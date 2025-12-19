@@ -1,0 +1,60 @@
+package components
+
+import "fmt"
+
+// Example templ component demonstrating FileIntegrity usage
+// After running: hashfile add example_templ_usage.templ
+// A const FileIntegrity declaration will be added at the end of this file
+//
+// The const can then be rendered into HTML comments for traceability,
+// allowing you to verify which version of the template generated the HTML
+
+templ Page(title, content string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<!-- Template Integrity: { FileIntegrity } -->
+			<meta charset="UTF-8"/>
+			<title>{ title }</title>
+		</head>
+		<body>
+			<main>
+				<h1>{ title }</h1>
+				<p>{ content }</p>
+			</main>
+		</body>
+	</html>
+}
+
+templ Component(name string) {
+	<!-- Component: { name }, Integrity: { FileIntegrity } -->
+	<div class="component" data-name={ name }>
+		<p>Component content</p>
+	</div>
+}
+
+templ Layout(children ...templ.Component) {
+	<!DOCTYPE html>
+	<html>
+		<head>
+			<!--
+				Template File Integrity: { FileIntegrity }
+				Generated from: example_templ_usage.templ
+			-->
+			<title>My App</title>
+		</head>
+		<body>
+			for _, child := range children {
+				@child
+			}
+		</body>
+	</html>
+}
+
+// After hashfile processes this file, it will append:
+// const FileIntegrity = "XXXXXXXX"
+//
+// This constant can be referenced in the templ components above to embed
+// the integrity hash into the generated HTML as comments, providing traceability
+// without changing the code structure or affecting functionality.
+const FileIntegrity = "DC469E8C"

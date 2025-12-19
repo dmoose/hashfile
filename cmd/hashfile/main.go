@@ -55,7 +55,7 @@ COMMANDS:
     help       Show this help message
 
 OPTIONS:
-    -style     Comment style (go|python|c|sql|html|shell|ruby|js)
+    -style     Comment style (go|python|c|sql|html|shell|ruby|js|css|templ)
                Default: auto-detect from file extension
 
 EXAMPLES:
@@ -80,7 +80,7 @@ EXIT CODES:
 
 func runAdd(args []string) int {
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
-	style := fs.String("style", "", "Comment style (go|python|c|sql|html|shell|ruby|js)")
+	style := fs.String("style", "", "Comment style (go|python|c|sql|html|shell|ruby|js|css|templ)")
 	fs.Parse(args)
 
 	files := fs.Args()
@@ -125,7 +125,7 @@ func runAdd(args []string) int {
 
 func runVerify(args []string) int {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
-	style := fs.String("style", "", "Comment style (go|python|c|sql|html|shell|ruby|js)")
+	style := fs.String("style", "", "Comment style (go|python|c|sql|html|shell|ruby|js|css|templ)")
 	quiet := fs.Bool("q", false, "Quiet mode (no output, only exit code)")
 	fs.Parse(args)
 
@@ -194,7 +194,7 @@ func runVerify(args []string) int {
 
 func runCheck(args []string) int {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
-	style := fs.String("style", "", "Comment style (go|python|c|sql|html|shell|ruby|js)")
+	style := fs.String("style", "", "Comment style (go|python|c|sql|html|shell|ruby|js|css|templ)")
 	fs.Parse(args)
 
 	files := fs.Args()
@@ -269,6 +269,10 @@ func getConfigForStyle(style string) hashfile.Config {
 		config.CommentStyle = hashfile.ShellStyle
 	case "ruby", "rb":
 		config.CommentStyle = hashfile.RubyStyle
+	case "css":
+		config.CommentStyle = hashfile.CSSStyle
+	case "templ":
+		config.CommentStyle = hashfile.TemplStyle
 	default:
 		fmt.Fprintf(os.Stderr, "Warning: unknown style '%s', using default (Go)\n", style)
 	}

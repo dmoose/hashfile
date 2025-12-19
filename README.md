@@ -10,7 +10,7 @@ A lightweight, efficient tool for adding CRC32-based integrity comments to sourc
 
 - **Efficient streaming algorithm** - Single buffer allocation with sliding window, processes files of any size
 - **No-op on unchanged files** - Only modifies files when the integrity comment is missing or incorrect
-- **Multiple language support** - Auto-detects comment style based on file extension (Go, Python, C/C++, SQL, HTML, Shell, Ruby, JavaScript)
+- **Multiple language support** - Auto-detects comment style based on file extension (Go, Python, C/C++, SQL, HTML, Shell, Ruby, JavaScript, CSS, Templ)
 - **Preserves file attributes** - Maintains permissions and ownership when updating files
 - **Line ending aware** - Preserves CRLF vs LF line endings
 - **Zero dependencies** - Uses only Go standard library
@@ -178,7 +178,11 @@ hashfile.HTMLStyle    <!-- FileIntegrity: ABCD1234 -->
 hashfile.ShellStyle   # FileIntegrity: ABCD1234
 hashfile.RubyStyle    # FileIntegrity: ABCD1234
 hashfile.JSStyle      // FileIntegrity: ABCD1234
+hashfile.CSSStyle     /* FileIntegrity: ABCD1234 */
+hashfile.TemplStyle   const FileIntegrity = "ABCD1234"
 ```
+
+**Note:** `TemplStyle` uses a Go constant declaration instead of a comment. Since [templ](https://templ.guide/) files compile to Go code, this allows the integrity hash to be embedded in generated HTML comments for traceability (e.g., `<!-- Template Integrity: { FileIntegrity } -->`).
 
 ### Auto-Detection by Extension
 
@@ -193,6 +197,8 @@ The library automatically selects the appropriate comment style:
 | `.html`, `.xml` | `<!-- ... -->` |
 | `.sh`, `.bash` | `# ...` |
 | `.rb` | `# ...` |
+| `.css`, `.scss`, `.sass` | `/* ... */` |
+| `.templ` | `const FileIntegrity = "..."` |
 
 ## How It Works
 
@@ -239,6 +245,27 @@ func main() {
     println("Hello")
 }
 
+// FileIntegrity: A1B2C3D4
+```
+
+**Example with CSS:**
+```css
+body {
+    color: red;
+}
+
+/* FileIntegrity: E5F6A7B8 */
+```
+
+**Example with Templ:**
+```templ
+package components
+
+templ Hello() {
+    <div>Hello</div>
+}
+
+const FileIntegrity = "C9D0E1F2"
 ```
 
 **If you modify the code:**
